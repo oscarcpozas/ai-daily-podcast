@@ -65,8 +65,20 @@ uv run daily-podcast sources                        # list the trusted sources
 ```
 
 Each stage writes a checkpoint under `out/<date>/`, so an interrupted run resumes at the stage
-where it stopped. Speech is checkpointed per chunk before it is polled, so a retry does not
-generate audio twice.
+where it stopped. If you change the lineup (for example `--max-stories 5`), the script and the
+audio that belonged to the old lineup are discarded and redone.
+
+Speech is the one stage that spends credits, so it is handled conservatively:
+
+- Each chunk's job is saved to `audio/jobs.json` before it is polled, so a retry polls the same
+  job instead of generating the audio twice.
+- Audio is matched to its chunk by a fingerprint of the text, the voice and the model. Audio for
+  other text or another voice is never reused.
+- `--fresh` redoes every stage, including the script and the voice choice. The model rewrites the
+  script, so expect new audio and new credits. `--regenerate-audio` discards the saved audio and
+  jobs and generates them again for the *same* script, for example after an ElevenLabs outage.
+- If ElevenLabs reports a job as failed, it is dropped from `jobs.json` and the next run
+  generates that chunk again.
 
 ## Configuration
 
