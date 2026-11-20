@@ -16,9 +16,10 @@ from rich.markup import escape
 from rich.table import Table
 
 from daily_podcast import __version__
-from daily_podcast.aixy import AixyInferenceError, AixyLLM, AixyToolError, AixyTools
+from daily_podcast.aixy import AixyInferenceError, AixyLLM, AixyTools
 from daily_podcast.config import ConfigError, Settings
-from daily_podcast.runner import EmptyEpisodeError, EpisodeRun, RunOptions, Stage
+from daily_podcast.errors import PodcastError
+from daily_podcast.runner import EpisodeRun, RunOptions, Stage
 from daily_podcast.sources import load_sources
 
 app = typer.Typer(
@@ -45,7 +46,7 @@ def _setup(verbose: bool) -> Settings:
 
 
 def _fail(message: str) -> typer.Exit:
-    console.print(f"[bold red]✗[/] {message}")
+    console.print(f"[bold red]✗[/] {escape(message)}")
     return typer.Exit(code=1)
 
 
@@ -65,6 +66,10 @@ def run(
     ] = None,
     until: Annotated[Stage, typer.Option(help="Stop after this stage.")] = Stage.PUBLISH,
     fresh: Annotated[bool, typer.Option(help="Ignore checkpoints and redo every stage.")] = False,
+    regenerate_audio: Annotated[
+        bool,
+        typer.Option(help="Discard generated speech and generate it again (spends credits)."),
+    ] = False,
     source: Annotated[
         list[str] | None, typer.Option("--source", "-s", help="Only use these sources (by name).")
     ] = None,
@@ -85,6 +90,7 @@ def run(
         day=episode_day,
         until=until,
         fresh=fresh,
+        regenerate_audio=regenerate_audio,
         max_stories=max_stories,
         per_category=per_category,
         min_relevance=min_relevance,
@@ -101,7 +107,7 @@ def run(
     episode = EpisodeRun(settings, options, notify=notify)
     try:
         report = asyncio.run(episode.run())
-    except (ConfigError, AixyInferenceError, AixyToolError, EmptyEpisodeError) as exc:
+    except PodcastError as exc:
         raise _fail(str(exc)) from exc
 
     usage = episode.llm.usage if episode._llm else None
@@ -136,7 +142,7 @@ def doctor(
         nonlocal ok
         ok &= passed
         mark = "[green]✓[/]" if passed else "[red]✗[/]"
-        console.print(f"{mark} {label}" + (f" [dim]{detail}[/]" if detail else ""))
+        console.print(f"{mark} {escape(label)}" + (f" [dim]{escape(detail)}[/]" if detail else ""))
 
     try:
         sources = load_sources(settings.sources_file)
@@ -156,7 +162,7 @@ def doctor(
                 )
                 resolved = ", ".join(llm.usage.models) or "?"
                 check(f"model {settings.model}", True, f"→ {resolved}: {message.content!r}")
-            except AixyInferenceError as exc:
+            except (AixyInferenceError, PodcastError) as exc:
                 check(f"model {settings.model}", False, str(exc))
         if settings.aixy_mcp_token:
             try:
@@ -171,9 +177,9 @@ def doctor(
                     try:
                         actions = await tools.search("text to speech", provider="elevenlabs")
                         check("discovery", True, f"{len(actions)} ElevenLabs actions found")
-                    except AixyToolError as exc:
+                    except PodcastError as exc:
                         check("discovery", False, str(exc))
-            except (AixyToolError, ConfigError, OSError) as exc:
+            except (PodcastError, OSError) as exc:
                 check("Aixy MCP", False, str(exc))
 
     asyncio.run(probe())

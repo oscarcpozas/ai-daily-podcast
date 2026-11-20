@@ -5,18 +5,22 @@ Upload to Google Drive will plug in here once the Drive connector is enabled in 
 
 from __future__ import annotations
 
+import logging
 import shutil
 from datetime import date
 from pathlib import Path
 
+from daily_podcast.errors import PodcastError
 from daily_podcast.models import AudioManifest, Script, Selection, Story
 from daily_podcast.textutil import spanish_date
+
+log = logging.getLogger(__name__)
 
 INTRO_SECONDS = 4.1
 GAP_MS = 350
 
 
-class MasteringError(RuntimeError):
+class MasteringError(PodcastError):
     """The episode audio could not be assembled."""
 
 
@@ -30,6 +34,8 @@ def master_episode(
     episode = AudioSegment.empty()
     if intro is not None and intro.is_file():
         episode += AudioSegment.from_file(intro)[: int(INTRO_SECONDS * 1000)]
+    elif intro is not None:
+        log.warning("Intro jingle %s not found: publishing the episode without it", intro)
     gap = AudioSegment.silent(duration=GAP_MS)
     for chunk in sorted(manifest.chunks, key=lambda c: c.index):
         episode += AudioSegment.from_file(audio_dir / chunk.file) + gap

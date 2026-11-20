@@ -17,6 +17,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, ValidationError
 
 from daily_podcast.config import Settings
+from daily_podcast.errors import PodcastError
 from daily_podcast.textutil import extract_json
 
 M = TypeVar("M", bound=BaseModel)
@@ -24,11 +25,11 @@ M = TypeVar("M", bound=BaseModel)
 SESSION_HEADER = "X-Aixy-Session-ID"
 
 
-class AixyInferenceError(RuntimeError):
+class AixyInferenceError(PodcastError):
     """The gateway rejected or failed a model request."""
 
 
-class LLMOutputError(RuntimeError):
+class LLMOutputError(PodcastError):
     """The model kept replying with output that does not match the expected schema."""
 
 

@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from daily_podcast.aixy.mcp import EXECUTE, SEARCH, AixyToolError, AixyTools
+from daily_podcast.errors import PodcastError
 from daily_podcast.textutil import truncate
 
 Handler = Callable[[dict[str, Any]], Awaitable[Any]]
 
 
-class AgentError(RuntimeError):
+class AgentError(PodcastError):
     """The agent did not finish its task."""
 
 

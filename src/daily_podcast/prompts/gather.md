@@ -22,5 +22,6 @@ Rules:
 
 - Use only facts that appear in the content you fetched. Never invent or complete facts.
 - If a page fails to load, skip it and continue with the others.
+- Only the page-fetching action is available; other actions are refused.
 - If the source has nothing from today, call `submit_articles` with an empty list.
 - Keep tool arguments minimal and do not request screenshots or full HTML.

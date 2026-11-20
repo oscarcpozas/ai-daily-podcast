@@ -38,7 +38,7 @@ async def classify(llm: AixyLLM, articles: ArticleSet, *, concurrency: int) -> S
                     system=system,
                     user=_article_payload(article),
                     schema=Classification,
-                    max_tokens=400,
+                    max_tokens=1500,
                 )
             except (LLMOutputError, AixyInferenceError) as exc:
                 log.warning("Could not classify %s: %s", article.url, exc)

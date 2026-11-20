@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import date
 from typing import Any
+from urllib.parse import urlsplit
 
 from daily_podcast.aixy import AgentError, AixyLLM, AixyTools, LocalTool, ToolInputError, run_agent
 from daily_podcast.aixy.agent import gateway_tools
@@ -18,6 +19,8 @@ from daily_podcast.textutil import spanish_date
 log = logging.getLogger(__name__)
 
 SCRAPER_PROVIDER = "tinyfish"
+# Page content is untrusted: the researcher may only read pages, never run anything else.
+READ_ACTIONS = {"tinyfish.fetch_content"}
 
 SUBMIT_ARTICLES: dict[str, Any] = {
     "type": "object",
@@ -40,6 +43,16 @@ SUBMIT_ARTICLES: dict[str, Any] = {
 }
 
 
+def _same_site(url: str, source: Source) -> bool:
+    """Only http(s) links that stay on the source's own site can reach the show notes."""
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    site = (urlsplit(str(source.url)).hostname or "").removeprefix("www.")
+    host = parts.hostname.removeprefix("www.")
+    return host == site or host.endswith(f".{site}")
+
+
 def _accept_articles(
     source: Source, day: date, raw: dict[str, Any]
 ) -> tuple[list[Article], list[str]]:
@@ -50,7 +63,7 @@ def _accept_articles(
         if not isinstance(item, dict):
             continue
         url = str(item.get("url", "")).strip()
-        if pattern and not pattern.match(url):
+        if not _same_site(url, source) or (pattern and not pattern.match(url)):
             rejected.append(url)
             continue
         try:
@@ -67,17 +80,21 @@ async def gather_source(
 
     async def submit(arguments: dict[str, Any]) -> list[Article]:
         accepted, rejected = _accept_articles(source, day, arguments)
-        if rejected and not accepted and pattern is not None:
+        if rejected and not accepted:
             raise ToolInputError(
-                f"None of the URLs match the required link pattern {pattern.pattern}. "
-                "Pick article URLs that match it."
+                f"None of the URLs are valid article links of {source.name} "
+                f"(they must stay on {source.url}"
+                + (f" and match {pattern.pattern}" if pattern else "")
+                + "). Pick article URLs that qualify."
             )
         if rejected:
             log.info("%s: dropped %d invalid or off-pattern URLs", source.name, len(rejected))
         return accepted
 
     tools_for_agent = [
-        *gateway_tools(tools, provider=SCRAPER_PROVIDER, max_chars=max_chars),
+        *gateway_tools(
+            tools, provider=SCRAPER_PROVIDER, max_chars=max_chars, allowed_actions=READ_ACTIONS
+        ),
         LocalTool(
             "submit_articles",
             "Hand over the articles you read. Call it exactly once, at the end.",

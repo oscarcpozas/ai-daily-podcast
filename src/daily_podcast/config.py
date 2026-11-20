@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from daily_podcast.errors import PodcastError
 
 DEFAULT_BASE_URL = "https://api.aixy-gateway.com/v1"
 DEFAULT_MCP_URL = "https://api.aixy-gateway.com/mcp"
 DEFAULT_MODEL = "aixy/podcast-agent"
 
 
-class ConfigError(RuntimeError):
+class ConfigError(PodcastError):
     """Raised when required configuration is missing or invalid."""
 
 
 @dataclass(frozen=True)
 class Settings:
-    aixy_api_key: str | None = None
-    aixy_mcp_token: str | None = None
+    aixy_api_key: str | None = field(default=None, repr=False)
+    aixy_mcp_token: str | None = field(default=None, repr=False)
     aixy_base_url: str = DEFAULT_BASE_URL
     aixy_mcp_url: str = DEFAULT_MCP_URL
     model: str = DEFAULT_MODEL
@@ -40,14 +42,17 @@ class Settings:
             value = env.get(name, "").strip()
             return value or None
 
-        def get_int(name: str, default: int) -> int:
+        def get_int(name: str, default: int, minimum: int = 1) -> int:
             raw = get(name)
             if raw is None:
                 return default
             try:
-                return int(raw)
+                value = int(raw)
             except ValueError as exc:
                 raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
+            if value < minimum:
+                raise ConfigError(f"{name} must be at least {minimum}, got {value}")
+            return value
 
         return cls(
             aixy_api_key=get("AIXY_API_KEY"),
@@ -57,12 +62,12 @@ class Settings:
             model=get("AIXY_MODEL") or DEFAULT_MODEL,
             voice_id=get("ELEVENLABS_VOICE_ID"),
             tts_model=get("ELEVENLABS_MODEL") or "eleven_v3",
-            tts_chunk_chars=get_int("TTS_CHUNK_CHARS", 4500),
+            tts_chunk_chars=get_int("TTS_CHUNK_CHARS", 4500, minimum=200),
             show_name=get("PODCAST_NAME") or "AI Daily Podcast",
             sources_file=Path(get("PODCAST_SOURCES") or "sources.toml"),
             output_dir=Path(get("PODCAST_OUTPUT_DIR") or "out"),
             concurrency=get_int("PODCAST_CONCURRENCY", 5),
-            tool_result_max_chars=get_int("TOOL_RESULT_MAX_CHARS", 40_000),
+            tool_result_max_chars=get_int("TOOL_RESULT_MAX_CHARS", 40_000, minimum=1000),
         )
 
     def require_inference(self) -> None:

@@ -23,25 +23,25 @@ def test_parse_job_reads_structured_reply():
         texts=['{"flow_id": "F", "session_ids": ["S1"]}'],
         structured={"flow_id": "F", "session_ids": ["S1"]},
     )
-    job = parse_job(out, index=2, characters=40)
-    assert job == SpeechJob(index=2, characters=40, flow_id="F", session_ids=["S1"])
+    job = parse_job(out, index=2, fingerprint="abc")
+    assert job == SpeechJob(index=2, fingerprint="abc", flow_id="F", session_ids=["S1"])
 
 
 def test_parse_job_accepts_a_single_session_string():
     out = ToolOutput(texts=['{"flow_id": "F", "session_ids": "S1"}'])
-    assert parse_job(out, index=1, characters=1).session_ids == ["S1"]
+    assert parse_job(out, index=1, fingerprint="x").session_ids == ["S1"]
 
 
 def test_parse_job_fails_loudly_on_error_or_missing_ids():
     with pytest.raises(VoiceError):
-        parse_job(ToolOutput(texts=["denied"], is_error=True), index=1, characters=1)
+        parse_job(ToolOutput(texts=["denied"], is_error=True), index=1, fingerprint="x")
     with pytest.raises(VoiceError):
-        parse_job(ToolOutput(texts=['{"ok": true}']), index=1, characters=1)
+        parse_job(ToolOutput(texts=['{"ok": true}']), index=1, fingerprint="x")
 
 
 def test_jobs_round_trip_through_the_checkpoint_file(tmp_path):
     path = tmp_path / "audio" / "jobs.json"
-    job = SpeechJob(index=1, characters=10, flow_id="F", session_ids=["S1", "S2"])
+    job = SpeechJob(index=1, fingerprint="abc", flow_id="F", session_ids=["S1", "S2"])
     save_jobs(path, {1: job})
     assert load_jobs(path) == {1: job}
     assert load_jobs(tmp_path / "missing.json") == {}

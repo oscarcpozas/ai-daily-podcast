@@ -25,6 +25,7 @@ from mcp.shared.exceptions import MCPError
 
 from daily_podcast import __version__
 from daily_podcast.config import Settings
+from daily_podcast.errors import PodcastError
 
 SEARCH = "aixy_search_tools"
 EXECUTE = "aixy_execute_tool"
@@ -35,10 +36,12 @@ _SCHEMA_KEYS = ("inputSchema", "input_schema")
 
 # Discovery answers these while it refreshes the caller's catalog; retrying is the documented fix.
 _TRANSIENT_DISCOVERY = ("capacity is busy", "awaiting authorized reconciliation", "scope changed")
+# What a dropped connection, an unreachable gateway or an HTTP error looks like from the MCP client.
+_TRANSPORT_ERRORS = (MCPError, httpx2.HTTPError, OSError, ExceptionGroup)
 log = logging.getLogger(__name__)
 
 
-class AixyToolError(RuntimeError):
+class AixyToolError(PodcastError):
     """The MCP gateway failed a request (protocol error, auth, discovery unavailable…)."""
 
 
@@ -129,6 +132,13 @@ def parse_actions(text: str) -> list[Action]:
     return list(found.values())
 
 
+def _describe(exc: BaseException) -> str:
+    """One readable line for an exception, unwrapping the groups anyio raises."""
+    while isinstance(exc, ExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return str(exc) or type(exc).__name__
+
+
 def _is_transient(message: str) -> bool:
     lowered = message.lower()
     return any(marker in lowered for marker in _TRANSIENT_DISCOVERY)
@@ -168,11 +178,19 @@ class AixyTools:
                 )
                 self._session = await stack.enter_async_context(session)
                 await self._session.initialize()
+                listing = await self._session.list_tools()
+            except _TRANSPORT_ERRORS as exc:
+                await stack.aclose()
+                raise AixyToolError(
+                    f"Cannot reach the Aixy MCP gateway at {self._settings.aixy_mcp_url}: "
+                    f"{_describe(exc)}"
+                ) from exc
             except BaseException:
                 await stack.aclose()
                 raise
             self._stack = stack
-        listing = await self._session.list_tools()
+        else:
+            listing = await self._session.list_tools()
         self.helpers = {tool.name: tool for tool in listing.tools}
         return self
 
@@ -196,8 +214,8 @@ class AixyTools:
             raise AixyToolError("AixyTools must be used as an async context manager")
         try:
             result = await self._session.call_tool(name, arguments)
-        except MCPError as exc:
-            raise AixyToolError(f"{name} failed: {exc}") from exc
+        except _TRANSPORT_ERRORS as exc:
+            raise AixyToolError(f"{name} failed: {_describe(exc)}") from exc
         if not isinstance(result, types.CallToolResult):
             raise AixyToolError(f"{name} returned an unsupported result: {type(result).__name__}")
         return ToolOutput.from_result(result)

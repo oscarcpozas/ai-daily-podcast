@@ -6,6 +6,7 @@ import logging
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
@@ -15,13 +16,14 @@ from typing import Any
 from daily_podcast import __version__
 from daily_podcast.aixy import AixyLLM, AixyTools
 from daily_podcast.config import Settings
+from daily_podcast.errors import CheckpointError, PodcastError
 from daily_podcast.models import ArticleSet, AudioManifest, Script, Selection, StorySet
 from daily_podcast.pipeline.classify import classify
 from daily_podcast.pipeline.gather import gather
 from daily_podcast.pipeline.publish import master_episode, show_notes
 from daily_podcast.pipeline.script import write_script
 from daily_podcast.pipeline.select import select
-from daily_podcast.pipeline.voice import Voice, choose_voice, synthesize
+from daily_podcast.pipeline.voice import Voice, choose_voice, reset_audio, synthesize
 from daily_podcast.sources import load_sources
 from daily_podcast.workspace import Workspace
 
@@ -38,15 +40,11 @@ class Stage(StrEnum):
     VOICE = "voice"
     PUBLISH = "publish"
 
-    @property
-    def needs_tools(self) -> bool:
-        return self in (Stage.GATHER, Stage.VOICE)
-
 
 STAGES = tuple(Stage)
 
 
-class EmptyEpisodeError(RuntimeError):
+class EmptyEpisodeError(PodcastError):
     """There is nothing to put on air."""
 
 
@@ -60,6 +58,7 @@ class RunOptions:
     min_relevance: int = 2
     intro: Path | None = None
     sources_filter: list[str] = field(default_factory=list)
+    regenerate_audio: bool = False  # forget generated speech: spends ElevenLabs credits
 
 
 @dataclass
@@ -108,6 +107,7 @@ class EpisodeRun:
         )
         self._llm = llm
         self._tools = tools
+        self._stack: AsyncExitStack | None = None
 
     @property
     def stages(self) -> list[Stage]:
@@ -127,27 +127,31 @@ class EpisodeRun:
         return self._llm
 
     async def run(self) -> RunReport:
-        needs_tools = any(
-            stage.needs_tools and not self._cached_quietly(stage) for stage in self.stages
-        )
         try:
-            if needs_tools and self._tools is None:
-                async with AixyTools(self.settings) as tools:
-                    self._tools = tools
-                    await self._run_stages()
-            else:
+            async with AsyncExitStack() as stack:
+                self._stack = stack
                 await self._run_stages()
         finally:
             self.workspace.write_json(Workspace.REPORT, self.report.as_dict(self._llm))
         return self.report
 
-    def _cached_quietly(self, stage: Stage) -> bool:
-        checkpoint = {Stage.GATHER: Workspace.ARTICLES, Stage.VOICE: Workspace.AUDIO_MANIFEST}
-        return not self.options.fresh and self.workspace.has(checkpoint.get(stage, ""))
+    async def _tools_session(self) -> AixyTools:
+        """The Aixy MCP session, opened the first time a stage needs it.
+
+        Opening it lazily means a run whose tool stages are all checkpointed (or stopped
+        before them with ``--until``) never connects, and a stage that loses its checkpoint
+        midway, as ``select`` can cause, still finds a session.
+        """
+        if self._tools is None:
+            assert self._stack is not None
+            self._tools = await self._stack.enter_async_context(AixyTools(self.settings))
+        return self._tools
 
     async def _timed(self, stage: Stage, step: Callable[[], Any]) -> None:
         started = time.monotonic()
         detail = await step()
+        if self.report.stages.get(stage, {}).get("status") == "cached":
+            return  # _cached recorded it: do not overwrite it with "done"
         self.report.stages[stage] = {
             "status": "done",
             "seconds": round(time.monotonic() - started, 1),
@@ -174,10 +178,10 @@ class EpisodeRun:
             wanted = {name.lower() for name in self.options.sources_filter}
             sources = [s for s in sources if s.name.lower() in wanted]
         self.notify(Stage.GATHER, f"reading {len(sources)} sources with TinyFish via Aixy")
-        assert self._tools is not None
+        tools = await self._tools_session()
         articles = await gather(
             self.llm,
-            self._tools,
+            tools,
             sources,
             day=self.options.day,
             max_chars=self.settings.tool_result_max_chars,
@@ -210,9 +214,24 @@ class EpisodeRun:
         )
         if not selection.stories:
             raise EmptyEpisodeError("No story passed the editorial selection")
+        if self._selection_changed(selection):
+            # Script and audio were written for another lineup: drop them so they are redone.
+            self.workspace.discard(
+                Workspace.SCRIPT, Workspace.SCRIPT_TEXT, Workspace.AUDIO_MANIFEST
+            )
+            self.notify(Stage.SELECT, "the lineup changed: the script and voice will be redone")
         self.workspace.save(Workspace.SELECTION, selection)
         self.notify(Stage.SELECT, f"{len(selection.stories)} stories on air")
         return {"selected": len(selection.stories), "good_news": selection.good_news is not None}
+
+    def _selection_changed(self, selection: Selection) -> bool:
+        if not self.workspace.has(Workspace.SELECTION):
+            return False
+        try:
+            previous = self.workspace.load(Workspace.SELECTION, Selection)
+        except CheckpointError:
+            return True
+        return previous != selection
 
     async def _script(self) -> dict[str, Any] | None:
         if self._cached(Stage.SCRIPT, Workspace.SCRIPT):
@@ -228,19 +247,24 @@ class EpisodeRun:
         return {"segments": len(script.segments), "characters": len(script.as_text())}
 
     async def _voice(self) -> dict[str, Any] | None:
-        if self._cached(Stage.VOICE, Workspace.AUDIO_MANIFEST):
+        if not self.options.regenerate_audio and self._cached(
+            Stage.VOICE, Workspace.AUDIO_MANIFEST
+        ):
             return None
-        assert self._tools is not None
+        tools = await self._tools_session()
         script = self.workspace.load(Workspace.SCRIPT, Script)
+        if self.options.regenerate_audio:
+            removed = reset_audio(self.workspace.audio_dir)
+            self.notify(Stage.VOICE, f"discarded {removed} saved audio files; generating again")
         if self.workspace.has(VOICE) and not self.options.fresh:
             voice = self.workspace.load(VOICE, Voice)
         else:
             self.notify(Stage.VOICE, "choosing an ElevenLabs voice via Aixy")
-            voice = await choose_voice(self.llm, self._tools, self.settings)
+            voice = await choose_voice(self.llm, tools, self.settings)
             self.workspace.save(VOICE, voice)
         self.notify(Stage.VOICE, f"generating speech with {self.settings.tts_model}")
         manifest = await synthesize(
-            self._tools,
+            tools,
             script,
             voice,
             audio_dir=self.workspace.audio_dir,
