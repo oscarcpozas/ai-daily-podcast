@@ -92,7 +92,22 @@ Speech is the one stage that spends credits, so it is handled conservatively:
 - **`.env`**: credentials and overrides. See [`.env.example`](.env.example) for every variable.
   `AIXY_WEB_PROVIDER` pins the connector that reads the web; leave it empty and Aixy's discovery
   picks whichever one is connected. `AIXY_TTS_PROVIDER` names the connector that serves speech
-  (default `elevenlabs`).
+  (default `elevenlabs`). The file wins over exported variables: a stale
+  `export AIXY_API_KEY=...` from another project no longer shadows it, and `doctor` prints which
+  source each credential came from.
+
+### Routing model targets
+
+`AIXY_MODEL` (default `aixy/podcast-agent`) is a routing model, and the models behind it decide
+whether a run can finish:
+
+- **Point it at non-reasoning targets** (`qwen-flash`, `claude-haiku`). Reasoning targets
+  (`deepseek-v4*`, `glm-5.3`) spend the whole token budget on `reasoning_content`: the gateway
+  returns empty `content`, and with a real reading step (tools plus a 10–26 KB tool result) they
+  reason past the 30 s per-target timeout, so every target fails and the run dies with
+  `502 - Every eligible routing target failed`.
+- A `502` from the route is therefore usually a configuration signal, not a transient one:
+  re-check the target list before retrying.
 
 ## Layout
 

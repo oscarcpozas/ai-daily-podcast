@@ -116,7 +116,20 @@ class AixyLLM:
         self.usage.record(response)
         if not response.choices:
             raise AixyInferenceError(f"{self.model!r} returned no choices")
-        return response.choices[0].message
+        choice = response.choices[0]
+        message = choice.message
+        text = (message.content or "").strip()
+        if not text and getattr(choice, "finish_reason", None) == "length":
+            # Reasoning targets (deepseek-v4*, glm-5*) spend the whole budget on
+            # ``reasoning_content`` and finish before writing an answer: the pipeline then parses
+            # an empty string and fails somewhere unrelated. Fail here, with the real cause.
+            raise AixyInferenceError(
+                f"{self.model!r} resolved to {getattr(response, 'model', '?')!r}, which used all "
+                f"{max_tokens or 'its'} tokens on reasoning and returned no content. Point the "
+                "routing model at a non-reasoning target (qwen-flash, claude-haiku) or raise "
+                "AIXY_MAX_TOKENS."
+            )
+        return message
 
     async def complete_json(
         self,
