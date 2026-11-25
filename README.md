@@ -118,7 +118,13 @@ uv run ruff format   # format
 
 ## Roadmap
 
-- Publish each episode to a Google Drive folder. The `publish` stage is where it will plug in.
+The decisions behind the pipeline live in the spec issue (#14). Open work is tracked there too:
+
+- #15 — use Exa as the web connector (today TinyFish is the only one connected)
+- #16 — create the `aixy/podcast-agent` route in the podcast project
+- #17 — first end-to-end rehearsal, gather through publish
+- #18 — publish each episode to a Google Drive folder through Aixy
+- #19 — add a type checker to the toolchain
 
 ## License
 
