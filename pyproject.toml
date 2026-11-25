@@ -4,6 +4,8 @@ version = "2.0.0"
 description = "A daily news podcast produced end-to-end by an AI agent, powered by the Aixy gateway."
 readme = "README.md"
 authors = [{ name = "Óscar Caballero", email = "atom-flaxseed-fame@duck.com" }]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "httpx2>=2.10",

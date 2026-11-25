@@ -132,16 +132,6 @@ uv run ruff format   # format
 uv run pyright       # type check
 ```
 
-## Roadmap
-
-The decisions behind the pipeline live in the spec issue (#14). Open work is tracked there too:
-
-- #15 — use Exa as the web connector (today TinyFish is the only one connected)
-- #16 — create the `aixy/podcast-agent` route in the podcast project
-- #17 — first end-to-end rehearsal, gather through publish
-- #18 — publish each episode to a Google Drive folder through Aixy
-- #19 — add a type checker to the toolchain
-
 ## License
 
-No license has been chosen yet. All rights reserved until one is added.
+MIT. See [LICENSE](LICENSE). © 2026 Óscar Caballero.
