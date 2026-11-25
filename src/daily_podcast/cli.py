@@ -32,9 +32,27 @@ console = Console()
 
 DEFAULT_INTRO = Path("assets/intro.mp3")
 
+#: The ``.env`` file ``_setup`` read, so ``doctor`` can say where the credentials came from.
+ENV_FILE: str | None = None
+
+
+def load_environment(path: Path = Path(".env")) -> str | None:
+    """Load the project's ``.env`` so it wins over the shell.
+
+    ``python-dotenv`` does not override existing variables by default, which means a stale
+    ``export AIXY_API_KEY=...`` from another project silently shadows the key in ``.env`` — the run
+    then fails with ``routing_model_not_found`` and nothing points at the cause. The file is the
+    source of truth for this repo; returns its path when it was read, ``None`` otherwise.
+    """
+    if not path.is_file():
+        return None
+    load_dotenv(path, override=True)
+    return str(path)
+
 
 def _setup(verbose: bool) -> Settings:
-    load_dotenv()
+    global ENV_FILE
+    ENV_FILE = load_environment()
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(message)s",
@@ -155,8 +173,8 @@ def doctor(
     except ConfigError as exc:
         check("sources", False, str(exc))
 
-    check("AIXY_API_KEY", bool(settings.aixy_api_key), settings.aixy_base_url)
-    check("AIXY_MCP_TOKEN", bool(settings.aixy_mcp_token), settings.aixy_mcp_url)
+    check("AIXY_API_KEY", bool(settings.aixy_api_key), ENV_FILE or "the environment")
+    check("AIXY_MCP_TOKEN", bool(settings.aixy_mcp_token), ENV_FILE or "the environment")
 
     async def probe() -> None:
         if settings.aixy_api_key and ping:
