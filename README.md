@@ -114,6 +114,7 @@ docs/          architecture diagram of the first version
 uv run pytest        # unit tests: no network, no credentials needed
 uv run ruff check    # lint
 uv run ruff format   # format
+uv run pyright       # type check
 ```
 
 ## Roadmap
