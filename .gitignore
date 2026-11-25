@@ -136,3 +136,7 @@ pyrightconfig.json
 
 # out folder
 out/
+
+# spike workspaces (generated checkpoints, reproducible with `python main.py runner|agent`)
+spikes/*/agent/
+spikes/*/runner/

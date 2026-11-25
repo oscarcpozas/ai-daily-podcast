@@ -1,0 +1,140 @@
+{
+ "error": "No result after 16 steps",
+ "seconds": 1.2,
+ "trace": [
+  "run_stage({\"stage\": \"gather\"})",
+  "run_stage({\"stage\": \"classify\"})",
+  "run_stage({\"stage\": \"select\"})",
+  "run_stage({\"stage\": \"script\"})",
+  "run_stage({\"stage\": \"script\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})",
+  "read_checkpoint({\"file\": \"script.json\"})"
+ ],
+ "turns": [
+  {
+   "assistant": "",
+   "calls": [
+    "run_stage({\"stage\": \"gather\"})"
+   ],
+   "last_user": "Produce today's episode up to the script."
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "run_stage({\"stage\": \"classify\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "run_stage({\"stage\": \"select\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "run_stage({\"stage\": \"script\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "run_stage({\"stage\": \"script\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  },
+  {
+   "assistant": "",
+   "calls": [
+    "read_checkpoint({\"file\": \"script.json\"})"
+   ],
+   "last_user": ""
+  }
+ ],
+ "stage_llm": {
+  "calls": 9,
+  "tokens": 11749
+ }
+}
