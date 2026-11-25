@@ -74,8 +74,16 @@ def _split_classification(item: dict[str, Any]) -> dict[str, Any]:
     if found:
         try:
             article["classification"] = Classification.model_validate(found)
-        except ValidationError:
-            log.warning("Dropping an invalid classification from the researcher's reply")
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            # Without the offending value the warning is undebuggable: it is the only trace of a
+            # model that invented a category or a sentiment.
+            log.warning(
+                "Dropping an invalid classification from the researcher's reply (%s: %s in %r)",
+                first.get("msg", "invalid"),
+                ".".join(str(part) for part in first.get("loc", ())),
+                found,
+            )
     return article
 
 
