@@ -1,0 +1,19 @@
+# Trusted news sources. The research agent reads each front page with the web connector
+# connected in Aixy (Exa, TinyFish…; pin one with AIXY_WEB_PROVIDER) and keeps only article
+# URLs that match `link_pattern`, when one is set.
+#
+# Placeholders in link_pattern:
+#   {today}          → 2026-11-20
+#   {today_compact}  → 20261120
+
+[[source]]
+name = "RTVE"
+url = "https://www.rtve.es/noticias/ultimas-noticias/"
+link_pattern = '^https://www\.rtve\.es/noticias/{today_compact}/[a-z0-9-]+/\d+\.shtml$'
+max_articles = 8
+
+[[source]]
+name = "El País"
+url = "https://elpais.com/actualidad/"
+link_pattern = '^https://elpais\.com/[a-z-]+(/[a-z-]+)?/{today}/[a-z0-9-]+\.html$'
+max_articles = 8
