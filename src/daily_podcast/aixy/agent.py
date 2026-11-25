@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -122,32 +122,55 @@ async def run_agent(
     raise AgentError(f"No result after {max_steps} steps")
 
 
+def _providers(provider: str | Collection[str] | None) -> frozenset[str] | None:
+    """Normalise the provider scope of a stage: one provider, several, or none."""
+    if provider is None:
+        return None
+    names = {provider} if isinstance(provider, str) else set(provider)
+    return frozenset(name.strip().lower() for name in names if name and name.strip()) or None
+
+
 def gateway_tools(
     tools: AixyTools,
     *,
-    provider: str,
+    provider: str | Collection[str] | None,
     max_chars: int,
     allowed_actions: set[str] | None = None,
+    refuse: tuple[str, ...] = (),
 ) -> list[LocalTool]:
-    """Expose Aixy's discovery and execution helpers to the model, pinned to one provider.
+    """Expose Aixy's discovery and execution helpers to the model, pinned to a provider scope.
 
-    The model discovers the provider's actions by itself; the pin keeps a news-reading agent
-    from touching anything else the account has connected (Slack, Notion…). ``allowed_actions``
-    narrows execution further, e.g. to read-only actions in a step that must not spend credits.
+    The model discovers the actions by itself; the scope keeps a news-reading agent from touching
+    anything else the account has connected (Slack, Notion…). A scope is required, so no stage
+    can hand the model an unguarded ``aixy_execute_tool``: pass the providers that fulfil the
+    capability (discovered through :mod:`daily_podcast.aixy.capabilities`) and, when it makes
+    sense, narrow it further with ``allowed_actions`` or ``refuse`` (e.g. metered browser
+    automation in a step that must only read).
     """
-    prefix = f"{provider.lower()}."
+    providers = _providers(provider)
+    if providers is None and allowed_actions is None:
+        raise ValueError("gateway_tools needs a provider scope or an explicit allowlist")
+    pinned = next(iter(providers)) if providers and len(providers) == 1 else None
+    refused = tuple(marker.lower() for marker in refuse)
 
     async def search(arguments: dict[str, Any]) -> str:
-        out = await tools.call_helper(SEARCH, {**arguments, "provider": provider})
+        # One provider: search inside it. Several: let discovery look across the account, since
+        # execution refuses anything outside the scope anyway.
+        extra = {"provider": pinned} if pinned else {}
+        out = await tools.call_helper(SEARCH, {**arguments, **extra})
         return truncate(out.text, max_chars)
 
     async def execute(arguments: dict[str, Any]) -> str:
         name = str(arguments.get("name", ""))
-        if not name.lower().startswith(prefix):
-            raise ToolInputError(f"Only {provider} actions are allowed here; got {name!r}")
+        action_provider = name.split(".", 1)[0] if "." in name else ""
+        if providers is not None and action_provider.lower() not in providers:
+            allowed = ", ".join(sorted(providers))
+            raise ToolInputError(f"Only {allowed} actions are allowed here; got {name!r}")
         if allowed_actions is not None and name not in allowed_actions:
             allowed = ", ".join(sorted(allowed_actions))
             raise ToolInputError(f"{name!r} is not allowed in this step. Allowed: {allowed}")
+        if any(marker in name.lower() for marker in refused):
+            raise ToolInputError(f"{name!r} is not allowed in this step")
         try:
             out = await tools.call_helper(EXECUTE, arguments)
         except AixyToolError as exc:

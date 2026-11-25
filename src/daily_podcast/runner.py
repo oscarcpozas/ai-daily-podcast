@@ -22,7 +22,7 @@ from daily_podcast.pipeline.classify import classify
 from daily_podcast.pipeline.gather import gather
 from daily_podcast.pipeline.publish import master_episode, show_notes
 from daily_podcast.pipeline.script import write_script
-from daily_podcast.pipeline.select import select
+from daily_podcast.pipeline.select import editorial_pass, runners_up, select
 from daily_podcast.pipeline.voice import Voice, choose_voice, reset_audio, synthesize
 from daily_podcast.sources import load_sources
 from daily_podcast.workspace import Workspace
@@ -53,6 +53,7 @@ class RunOptions:
     day: date
     until: Stage = Stage.PUBLISH
     fresh: bool = False
+    editorial: bool = False  # an agent reviews the deterministic lineup (one extra model call)
     max_stories: int = 10
     per_category: int = 3
     min_relevance: int = 2
@@ -177,7 +178,7 @@ class EpisodeRun:
         if self.options.sources_filter:
             wanted = {name.lower() for name in self.options.sources_filter}
             sources = [s for s in sources if s.name.lower() in wanted]
-        self.notify(Stage.GATHER, f"reading {len(sources)} sources with TinyFish via Aixy")
+        self.notify(Stage.GATHER, f"reading {len(sources)} sources through Aixy")
         tools = await self._tools_session()
         articles = await gather(
             self.llm,
@@ -186,6 +187,7 @@ class EpisodeRun:
             day=self.options.day,
             max_chars=self.settings.tool_result_max_chars,
             concurrency=self.settings.concurrency,
+            web_provider=self.settings.web_provider,
         )
         if not articles.articles:
             raise EmptyEpisodeError("No articles were gathered from any source")
@@ -214,6 +216,15 @@ class EpisodeRun:
         )
         if not selection.stories:
             raise EmptyEpisodeError("No story passed the editorial selection")
+        if self.options.editorial:
+            self.notify(Stage.SELECT, "an editorial agent is reviewing the lineup")
+            selection = await editorial_pass(
+                self.llm,
+                selection,
+                alternates=runners_up(stories, selection),
+                day=self.options.day,
+                settings=self.settings,
+            )
         if self._selection_changed(selection):
             # Script and audio were written for another lineup: drop them so they are redone.
             self.workspace.discard(

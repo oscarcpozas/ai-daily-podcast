@@ -16,12 +16,19 @@ How to work:
    - `url`: the exact article URL,
    - `title`: the headline,
    - `summary`: 3 to 5 factual sentences in Spanish (Spain), no opinions,
-   - `key_facts`: up to 5 short facts with the names, figures and places that matter.
+   - `key_facts`: up to 5 short facts with the names, figures and places that matter,
+   - `category`: one of GENERAL, POLITICS, INTERNATIONAL, ECONOMY, SCIENCE, TECHNOLOGY, CULTURE,
+     ENTERTAINMENT, SPORTS, WEATHER,
+   - `sentiment`: how a listener will feel about the facts (positive, neutral or negative),
+   - `relevance`: 1 to 5 for a general audience in Spain today (5 = the story everyone will
+     talk about; 1 = trivial or promotional).
+   Classify from what the article actually says, not from the headline alone.
 
 Rules:
 
 - Use only facts that appear in the content you fetched. Never invent or complete facts.
 - If a page fails to load, skip it and continue with the others.
-- Only the page-fetching action is available; other actions are refused.
+- Only the web actions available to you can be run; anything else is refused, and so is metered
+  browser automation. Prefer the plain page-reading action; never drive a browser.
 - If the source has nothing from today, call `submit_articles` with an empty list.
 - Keep tool arguments minimal and do not request screenshots or full HTML.

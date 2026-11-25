@@ -28,8 +28,14 @@ def _article_payload(article: Article) -> str:
 
 
 async def classify(llm: AixyLLM, articles: ArticleSet, *, concurrency: int) -> StorySet:
+    """Classify every article — but only the ones the researcher did not classify while reading.
+
+    The researcher already reads the full article, so it classifies for free; this stage is the
+    fallback (and the legacy path for checkpoints written before that existed).
+    """
     system = render("classify")
     semaphore = asyncio.Semaphore(concurrency)
+    pending = [a for a in articles.articles if a.classification is None]
 
     async def one(article: Article) -> Story | None:
         async with semaphore:
@@ -45,5 +51,12 @@ async def classify(llm: AixyLLM, articles: ArticleSet, *, concurrency: int) -> S
                 return None
             return Story(article=article, classification=result)
 
-    stories = await asyncio.gather(*(one(article) for article in articles.articles))
-    return StorySet(stories=[story for story in stories if story is not None])
+    results = await asyncio.gather(*(one(article) for article in pending))
+    classified = {story.article.url: story for story in results if story is not None}
+    stories: list[Story] = []
+    for article in articles.articles:
+        if article.classification is not None:
+            stories.append(Story(article=article, classification=article.classification))
+        elif (story := classified.get(article.url)) is not None:
+            stories.append(story)
+    return StorySet(stories=stories)

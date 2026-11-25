@@ -1,5 +1,6 @@
-# Trusted news sources. The research agent reads each front page with TinyFish (via Aixy)
-# and keeps only article URLs that match `link_pattern`, when one is set.
+# Trusted news sources. The research agent reads each front page with the web connector
+# connected in Aixy (Exa, TinyFish…; pin one with AIXY_WEB_PROVIDER) and keeps only article
+# URLs that match `link_pattern`, when one is set.
 #
 # Placeholders in link_pattern:
 #   {today}          → 2026-11-20

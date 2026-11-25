@@ -1,4 +1,9 @@
-"""Stage 1 — gather: one research agent per trusted source, scraping with TinyFish via Aixy."""
+"""Stage 1 — gather: one research agent per trusted source, reading the web through Aixy.
+
+The web connector is whatever the Aixy account has connected: Exa, TinyFish or another. This
+stage never names one. It asks Aixy's discovery which providers can read the web, hands those to
+the researcher and refuses everything else, so a connector swapped in Aixy needs no code change.
+"""
 
 from __future__ import annotations
 
@@ -8,19 +13,18 @@ from datetime import date
 from typing import Any
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from daily_podcast.aixy import AgentError, AixyLLM, AixyTools, LocalTool, ToolInputError, run_agent
 from daily_podcast.aixy.agent import gateway_tools
+from daily_podcast.aixy.capabilities import INTERACTIVE, web_providers
 from daily_podcast.aixy.llm import AixyInferenceError
 from daily_podcast.aixy.mcp import AixyToolError
-from daily_podcast.models import Article, ArticleSet, Source
+from daily_podcast.models import Article, ArticleSet, Classification, Source
 from daily_podcast.prompts import render
 from daily_podcast.textutil import spanish_date
 
 log = logging.getLogger(__name__)
-
-SCRAPER_PROVIDER = "tinyfish"
-# Page content is untrusted: the researcher may only read pages, never run anything else.
-READ_ACTIONS = {"tinyfish.fetch_content"}
 
 SUBMIT_ARTICLES: dict[str, Any] = {
     "type": "object",
@@ -34,6 +38,20 @@ SUBMIT_ARTICLES: dict[str, Any] = {
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
                     "key_facts": {"type": "array", "items": {"type": "string"}},
+                    "category": {
+                        "type": "string",
+                        "description": "One of the ten categories listed in your instructions.",
+                    },
+                    "sentiment": {
+                        "type": "string",
+                        "enum": ["positive", "neutral", "negative"],
+                    },
+                    "relevance": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "description": "How newsworthy for a general audience in Spain today.",
+                    },
                 },
                 "required": ["url", "title", "summary"],
             },
@@ -41,6 +59,24 @@ SUBMIT_ARTICLES: dict[str, Any] = {
     },
     "required": ["articles"],
 }
+
+_CLASSIFICATION_FIELDS = ("category", "sentiment", "relevance", "reason")
+
+
+def _split_classification(item: dict[str, Any]) -> dict[str, Any]:
+    """Move the researcher's classification fields into the article's ``classification``.
+
+    An invalid one is dropped (and logged) rather than rejecting the article: the classify
+    stage still runs for anything without a usable classification.
+    """
+    found = {key: item[key] for key in _CLASSIFICATION_FIELDS if key in item}
+    article = {key: value for key, value in item.items() if key not in _CLASSIFICATION_FIELDS}
+    if found:
+        try:
+            article["classification"] = Classification.model_validate(found)
+        except ValidationError:
+            log.warning("Dropping an invalid classification from the researcher's reply")
+    return article
 
 
 def _same_site(url: str, source: Source) -> bool:
@@ -67,14 +103,24 @@ def _accept_articles(
             rejected.append(url)
             continue
         try:
-            accepted.append(Article.model_validate({**item, "url": url, "source": source.name}))
+            accepted.append(
+                Article.model_validate(
+                    _split_classification(item) | {"url": url, "source": source.name}
+                )
+            )
         except ValueError:
             rejected.append(url)
     return accepted[: source.max_articles], rejected
 
 
 async def gather_source(
-    llm: AixyLLM, tools: AixyTools, source: Source, *, day: date, max_chars: int
+    llm: AixyLLM,
+    tools: AixyTools,
+    source: Source,
+    *,
+    day: date,
+    max_chars: int,
+    providers: frozenset[str],
 ) -> list[Article]:
     pattern = source.pattern_for(day)
 
@@ -93,7 +139,10 @@ async def gather_source(
 
     tools_for_agent = [
         *gateway_tools(
-            tools, provider=SCRAPER_PROVIDER, max_chars=max_chars, allowed_actions=READ_ACTIONS
+            tools,
+            provider=providers,
+            max_chars=max_chars,
+            refuse=INTERACTIVE,
         ),
         LocalTool(
             "submit_articles",
@@ -120,6 +169,23 @@ async def gather_source(
     )
 
 
+async def web_scope(tools: AixyTools, pinned: str | None = None) -> frozenset[str]:
+    """The providers this run may read the web with.
+
+    Discovered from Aixy, so the connector is a deployment choice: ``AIXY_WEB_PROVIDER`` only
+    pins one when an account has several connected and the run must be deterministic.
+    """
+    if pinned:
+        return frozenset({pinned.strip().lower()})
+    providers = await web_providers(tools)
+    if not providers:
+        raise AixyToolError(
+            "Aixy offers no web tools to this account: connect a web connector (Exa, TinyFish…) "
+            "in Aixy, or pin one with AIXY_WEB_PROVIDER."
+        )
+    return providers
+
+
 async def gather(
     llm: AixyLLM,
     tools: AixyTools,
@@ -128,13 +194,18 @@ async def gather(
     day: date,
     max_chars: int,
     concurrency: int,
+    web_provider: str | None = None,
 ) -> ArticleSet:
+    providers = await web_scope(tools, web_provider)
+    log.info("Reading the web with %s through Aixy", ", ".join(sorted(providers)))
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(source: Source) -> list[Article]:
         async with semaphore:
             try:
-                articles = await gather_source(llm, tools, source, day=day, max_chars=max_chars)
+                articles = await gather_source(
+                    llm, tools, source, day=day, max_chars=max_chars, providers=providers
+                )
             except (AgentError, AixyInferenceError, AixyToolError) as exc:
                 log.warning("%s: skipped (%s)", source.name, exc)
                 return []

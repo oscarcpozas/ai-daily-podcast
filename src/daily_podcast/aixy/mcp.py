@@ -183,7 +183,8 @@ class AixyTools:
                 await stack.aclose()
                 raise AixyToolError(
                     f"Cannot reach the Aixy MCP gateway at {self._settings.aixy_mcp_url}: "
-                    f"{_describe(exc)}"
+                    f"{_describe(exc)}. Check AIXY_MCP_TOKEN: a revoked or expired token fails "
+                    "exactly like this."
                 ) from exc
             except BaseException:
                 await stack.aclose()
@@ -239,11 +240,18 @@ class AixyTools:
         raise AssertionError("unreachable")
 
     async def search(
-        self, query: str = "", *, provider: str | None = None, limit: int = 5
+        self,
+        query: str = "",
+        *,
+        provider: str | None = None,
+        category: str | None = None,
+        limit: int = 5,
     ) -> list[Action]:
         arguments: dict[str, Any] = {"query": query, "limit": limit}
         if provider:
             arguments["provider"] = provider
+        if category:
+            arguments["category"] = category
         out = await self.call_helper(SEARCH, arguments)
         if out.is_error:
             raise AixyToolError(f"{SEARCH} failed: {out.text}")

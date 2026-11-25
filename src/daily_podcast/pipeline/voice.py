@@ -32,6 +32,7 @@ from daily_podcast.aixy import (
     run_agent,
 )
 from daily_podcast.aixy.agent import gateway_tools
+from daily_podcast.aixy.capabilities import resolve_action
 from daily_podcast.config import Settings
 from daily_podcast.errors import CheckpointError, PodcastError
 from daily_podcast.models import AudioChunk, AudioManifest, Script
@@ -41,10 +42,14 @@ from daily_podcast.workspace import atomic_write
 
 log = logging.getLogger(__name__)
 
-PROVIDER = "elevenlabs"
+PROVIDER = "elevenlabs"  # default connector name; overridden by AIXY_TTS_PROVIDER
+# Known names, preferred when the connector exposes them; discovery takes over when it does not.
 GENERATE_SPEECH = "elevenlabs.creative_generate_speech"
 RUN_STATUS = "elevenlabs.creative_get_flow_run_status"
 LIST_VOICES = "elevenlabs.creative_list_voices"
+GENERATE_QUERY = "generate speech audio from a text prompt with a voice"
+STATUS_QUERY = "check the status of a running speech generation job"
+VOICES_QUERY = "list the available text-to-speech voices"
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac")
 POLL_TIMEOUT_SECONDS = 15 * 60
@@ -99,6 +104,9 @@ CHOOSE_VOICE: dict[str, Any] = {
 async def choose_voice(llm: AixyLLM, tools: AixyTools, settings: Settings) -> Voice:
     if settings.voice_id:
         return Voice(voice_id=settings.voice_id, reason="ELEVENLABS_VOICE_ID")
+    list_voices = await resolve_action(
+        tools, (LIST_VOICES,), query=VOICES_QUERY, provider=settings.tts_provider
+    )
 
     async def submit(arguments: dict[str, Any]) -> Voice:
         try:
@@ -113,9 +121,9 @@ async def choose_voice(llm: AixyLLM, tools: AixyTools, settings: Settings) -> Vo
         tools=[
             *gateway_tools(
                 tools,
-                provider=PROVIDER,
+                provider=settings.tts_provider,
                 max_chars=settings.tool_result_max_chars,
-                allowed_actions={LIST_VOICES},
+                allowed_actions={list_voices},
             ),
             LocalTool(
                 "choose_voice",
@@ -210,13 +218,15 @@ async def audio_from_output(http: httpx2.AsyncClient, output: ToolOutput) -> byt
 # --- running jobs -----------------------------------------------------------------------------
 
 
-async def wait_for_audio(tools: AixyTools, http: httpx2.AsyncClient, job: SpeechJob) -> bytes:
+async def wait_for_audio(
+    tools: AixyTools, http: httpx2.AsyncClient, job: SpeechJob, *, action: str = RUN_STATUS
+) -> bytes:
     deadline = time.monotonic() + POLL_TIMEOUT_SECONDS
     errors = 0
     while True:
         try:
             output = await tools.execute(
-                RUN_STATUS, {"flow_id": job.flow_id, "session_ids": job.session_ids}
+                action, {"flow_id": job.flow_id, "session_ids": job.session_ids}
             )
         except AixyToolError as exc:
             # Reading a status is free and the job is already paid: ride out a hiccup.
@@ -290,9 +300,16 @@ async def synthesize(
     audio_dir: Path,
     settings: Settings,
 ) -> AudioManifest:
-    # Aixy ties execution to actions selected by discovery in the same MCP session.
-    for action in (GENERATE_SPEECH, RUN_STATUS):
-        await tools.describe(action)
+    # Aixy ties execution to actions selected by discovery in the same MCP session, and the names
+    # the connector exposes are resolved here rather than assumed.
+    generate = await resolve_action(
+        tools, (GENERATE_SPEECH,), query=GENERATE_QUERY, provider=settings.tts_provider
+    )
+    status = await resolve_action(
+        tools, (RUN_STATUS,), query=STATUS_QUERY, provider=settings.tts_provider
+    )
+    if (generate, status) != (GENERATE_SPEECH, RUN_STATUS):
+        log.info("ElevenLabs exposes %s / %s", generate, status)
 
     jobs_file = audio_dir / "jobs.json"
     jobs = load_jobs(jobs_file)
@@ -319,7 +336,7 @@ async def synthesize(
                     }
                     if flow_id:  # keep the whole episode on one ElevenLabs canvas
                         arguments["flow_id"] = flow_id
-                    started = await tools.execute(GENERATE_SPEECH, arguments)
+                    started = await tools.execute(generate, arguments)
                     # Paid from here on: keep the raw reply in case its shape is not what
                     # parse_job expects, so the job ids are never lost.
                     atomic_write(audio_dir / f"reply-{index:03d}.json", started.text)
@@ -329,7 +346,7 @@ async def synthesize(
                     save_jobs(jobs_file, jobs)  # before polling: never pay twice
                     log.info("Started chunk %d/%d (%d characters)", index, len(texts), len(text))
                 try:
-                    audio = await wait_for_audio(tools, http, job)
+                    audio = await wait_for_audio(tools, http, job, action=status)
                 except SpeechFailedError:
                     # ElevenLabs gave up on this job: drop it so a rerun generates the chunk
                     # again instead of polling the dead job forever.
@@ -341,7 +358,7 @@ async def synthesize(
             chunks.append(AudioChunk(index=index, file=target.name, characters=len(text)))
 
     return AudioManifest(
-        action=GENERATE_SPEECH,
+        action=generate,
         voice_id=voice.voice_id,
         model_id=settings.tts_model,
         flow_id=flow_id,

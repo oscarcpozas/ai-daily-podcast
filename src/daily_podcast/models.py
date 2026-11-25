@@ -78,14 +78,6 @@ class Source(BaseModel):
         return re.compile(rendered)
 
 
-class Article(BaseModel):
-    url: str
-    source: str
-    title: str
-    summary: str
-    key_facts: list[str] = Field(default_factory=list)
-
-
 class Classification(BaseModel):
     category: Category
     sentiment: Sentiment
@@ -104,6 +96,16 @@ class Classification(BaseModel):
     @classmethod
     def _normalize_sentiment(cls, value: object) -> object:
         return value.strip().lower() if isinstance(value, str) else value
+
+
+class Article(BaseModel):
+    url: str
+    source: str
+    title: str
+    summary: str
+    key_facts: list[str] = Field(default_factory=list)
+    classification: Classification | None = None
+    """Set by the researcher while it reads; the classify stage only pays for the rest."""
 
 
 class Story(BaseModel):

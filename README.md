@@ -10,18 +10,18 @@ server.
 
 ```
 sources.toml ─► gather ─► classify ─► select ─► script ─► voice ─► publish
-               (TinyFish    (sentiment,  (dedupe,   (ElevenLabs  (ElevenLabs   (mp3 + show
+               (web tools   (sentiment,  (dedupe,   (ElevenLabs  (ElevenLabs   (mp3 + show
                 via Aixy)    category)    balance)   v3 tags)     via Aixy)      notes)
 ```
 
-| Stage    | What it does                                                            | Reached through Aixy                 |
-|----------|-------------------------------------------------------------------------|--------------------------------------|
-| gather   | One agent per trusted source reads its front page and extracts articles | MCP → TinyFish `fetch_content`       |
-| classify | Category, sentiment and relevance for every article                     | inference → `aixy/podcast-agent`     |
-| select   | Merges the same event reported by several sources and balances topics  | deterministic, no model call         |
-| script   | Writes the episode with ElevenLabs v3 audio tags                        | inference → `aixy/podcast-agent`     |
-| voice    | Picks a Spanish voice, then generates the speech chunk by chunk         | MCP → ElevenLabs creative API        |
-| publish  | Joins the chunks with the intro, masters the mp3, writes show notes     | local (ffmpeg)                       |
+| Stage    | What it does                                                            | Reached through Aixy                        |
+|----------|-------------------------------------------------------------------------|---------------------------------------------|
+| gather   | One agent per trusted source reads its front page, extracts and classifies articles | MCP → whichever web connector is connected  |
+| classify | Category, sentiment and relevance the researcher did not set            | inference → `aixy/podcast-agent`            |
+| select   | Merges the same event across sources and balances topics; `--editorial` adds an agent | deterministic, no model call by default     |
+| script   | Writes the episode with ElevenLabs v3 audio tags                        | inference → `aixy/podcast-agent`            |
+| voice    | Picks a Spanish voice, then generates the speech chunk by chunk         | MCP → ElevenLabs creative API               |
+| publish  | Joins the chunks with the intro, masters the mp3, writes show notes     | local (ffmpeg)                              |
 
 ## Why Aixy
 
@@ -30,9 +30,12 @@ The agent asks Aixy for three things and nothing else:
 - **One routing model.** The code requests `aixy/podcast-agent`, a virtual route in Aixy that
   decides which underlying models answer. Changing those models is configured in Aixy, not in
   this code.
-- **Connectors without provider credentials in the code.** TinyFish and ElevenLabs are connected
-  once in Aixy. The agent discovers their actions over MCP at runtime and runs them through
-  Aixy's `aixy_execute_tool`. There is no provider SDK and no provider key here.
+- **Connectors without provider credentials in the code.** A web connector and ElevenLabs are
+  connected once in Aixy. The agent discovers their actions over MCP at runtime and runs them
+  through Aixy's `aixy_execute_tool`. There is no provider SDK and no provider key here.
+- **No connector is hardcoded.** The code asks Aixy which connected provider can read a web page
+  or search the web, and works with the answer: swap Exa for TinyFish (or anything else) in Aixy
+  and the next run uses it. `AIXY_WEB_PROVIDER` only pins one when an account has several.
 - **Visibility per run.** Each run prints its Aixy session id, the number of model calls and the
   tokens used, broken down by routed model, and records them in `run.json`.
 
@@ -40,8 +43,8 @@ The agent asks Aixy for three things and nothing else:
 
 - Python 3.12 and [uv](https://docs.astral.sh/uv/)
 - [ffmpeg](https://ffmpeg.org/) for mastering: `brew install ffmpeg`
-- An Aixy account with a project key (for the routing model), a personal MCP token, and TinyFish
-  and ElevenLabs connected
+- An Aixy account with a project key (for the routing model), a personal MCP token, and
+  connectors: one that can read the web (Exa, TinyFish…) and ElevenLabs
 
 ## Quick start
 
@@ -61,6 +64,7 @@ Useful options:
 uv run daily-podcast run --date 2026-11-20          # another day
 uv run daily-podcast run --until script             # stop after a stage
 uv run daily-podcast run --source "RTVE" --fresh    # one source, ignore checkpoints
+uv run daily-podcast run --editorial                # an agent reviews the lineup
 uv run daily-podcast sources                        # list the trusted sources
 ```
 
@@ -86,12 +90,16 @@ Speech is the one stage that spends credits, so it is handled conservatively:
   `link_pattern` regex that article URLs must match. `{today}` and `{today_compact}` are replaced
   with the episode date.
 - **`.env`**: credentials and overrides. See [`.env.example`](.env.example) for every variable.
+  `AIXY_WEB_PROVIDER` pins the connector that reads the web; leave it empty and Aixy's discovery
+  picks whichever one is connected. `AIXY_TTS_PROVIDER` names the connector that serves speech
+  (default `elevenlabs`).
 
 ## Layout
 
 ```
 src/daily_podcast/
-  aixy/        LLM client, MCP client (discovery, execution, retries) and the tool-use agent loop
+  aixy/        LLM client, MCP client (discovery, execution, retries), capability discovery
+               and the tool-use agent loop
   pipeline/    one module per stage
   prompts/     the prompts, as Markdown templates
   runner.py    wires the stages and checkpoints them

@@ -25,6 +25,10 @@ class Settings:
     aixy_base_url: str = DEFAULT_BASE_URL
     aixy_mcp_url: str = DEFAULT_MCP_URL
     model: str = DEFAULT_MODEL
+    web_provider: str | None = None
+    """Provider used to read the web. Empty: whatever Aixy discovers (Exa, TinyFish…)."""
+    tts_provider: str = "elevenlabs"
+    """Connector that serves speech. A deployment choice, not a code constant."""
     voice_id: str | None = None
     tts_model: str = "eleven_v3"
     tts_chunk_chars: int = 4500
@@ -60,6 +64,8 @@ class Settings:
             aixy_base_url=get("AIXY_BASE_URL") or DEFAULT_BASE_URL,
             aixy_mcp_url=get("AIXY_MCP_URL") or DEFAULT_MCP_URL,
             model=get("AIXY_MODEL") or DEFAULT_MODEL,
+            web_provider=get("AIXY_WEB_PROVIDER"),
+            tts_provider=get("AIXY_TTS_PROVIDER") or "elevenlabs",
             voice_id=get("ELEVENLABS_VOICE_ID"),
             tts_model=get("ELEVENLABS_MODEL") or "eleven_v3",
             tts_chunk_chars=get_int("TTS_CHUNK_CHARS", 4500, minimum=200),

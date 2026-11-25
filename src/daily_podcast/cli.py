@@ -17,6 +17,7 @@ from rich.table import Table
 
 from daily_podcast import __version__
 from daily_podcast.aixy import AixyInferenceError, AixyLLM, AixyTools
+from daily_podcast.aixy.capabilities import is_interactive, web_actions
 from daily_podcast.config import ConfigError, Settings
 from daily_podcast.errors import PodcastError
 from daily_podcast.runner import EpisodeRun, RunOptions, Stage
@@ -30,7 +31,6 @@ app = typer.Typer(
 console = Console()
 
 DEFAULT_INTRO = Path("assets/intro.mp3")
-EXPECTED_PROVIDERS = ("TinyFish", "ElevenLabs")
 
 
 def _setup(verbose: bool) -> Settings:
@@ -66,6 +66,10 @@ def run(
     ] = None,
     until: Annotated[Stage, typer.Option(help="Stop after this stage.")] = Stage.PUBLISH,
     fresh: Annotated[bool, typer.Option(help="Ignore checkpoints and redo every stage.")] = False,
+    editorial: Annotated[
+        bool,
+        typer.Option(help="Let an editorial agent review the lineup (one extra model call)."),
+    ] = False,
     regenerate_audio: Annotated[
         bool,
         typer.Option(help="Discard generated speech and generate it again (spends credits)."),
@@ -90,6 +94,7 @@ def run(
         day=episode_day,
         until=until,
         fresh=fresh,
+        editorial=editorial,
         regenerate_audio=regenerate_audio,
         max_stories=max_stories,
         per_category=per_category,
@@ -172,13 +177,22 @@ def doctor(
                         c.get("name", ""): bool(c.get("connected"))
                         for c in await tools.connections()
                     }
-                    for provider in EXPECTED_PROVIDERS:
-                        check(f"connector {provider}", connected.get(provider, False))
+                    check("connector ElevenLabs", connected.get("ElevenLabs", False))
                     try:
-                        actions = await tools.search("text to speech", provider="elevenlabs")
-                        check("discovery", True, f"{len(actions)} ElevenLabs actions found")
+                        actions = await web_actions(tools)
                     except PodcastError as exc:
-                        check("discovery", False, str(exc))
+                        check("web tools", False, str(exc))
+                    else:
+                        readable = [a for a in actions if not is_interactive(a.name)]
+                        if settings.web_provider:
+                            pinned = settings.web_provider.lower()
+                            readable = [a for a in readable if a.provider.lower() == pinned]
+                        found = ", ".join(sorted({a.provider for a in readable}))
+                        check(
+                            "web tools",
+                            bool(readable),
+                            found or "connect one (Exa, TinyFish…) or check AIXY_WEB_PROVIDER",
+                        )
             except (PodcastError, OSError) as exc:
                 check("Aixy MCP", False, str(exc))
 
