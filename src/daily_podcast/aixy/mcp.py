@@ -36,6 +36,10 @@ _SCHEMA_KEYS = ("inputSchema", "input_schema")
 
 # Discovery answers these while it refreshes the caller's catalog; retrying is the documented fix.
 _TRANSIENT_DISCOVERY = ("capacity is busy", "awaiting authorized reconciliation", "scope changed")
+# The gateway answers this when its worker pool for a connector cannot take the request: nothing
+# ran, so an execute retry cannot repeat paid work. Any other execute failure may have started
+# something billable, and stays unretried.
+_REFUSED_EXECUTE = ("processing capacity is unavailable",)
 # What a dropped connection, an unreachable gateway or an HTTP error looks like from the MCP client.
 _TRANSPORT_ERRORS = (MCPError, httpx2.HTTPError, OSError, ExceptionGroup)
 log = logging.getLogger(__name__)
@@ -139,8 +143,11 @@ def _describe(exc: BaseException) -> str:
     return str(exc) or type(exc).__name__
 
 
-def _is_transient(message: str) -> bool:
+def _is_transient(message: str, *, execute: bool = False) -> bool:
+    """Is this failure safe to retry? Executions only retry outright refusals."""
     lowered = message.lower()
+    if execute:
+        return any(marker in lowered for marker in _REFUSED_EXECUTE)
     return any(marker in lowered for marker in _TRANSIENT_DISCOVERY)
 
 
@@ -149,6 +156,10 @@ class AixyTools:
 
     #: Seconds to wait before each retry of a discovery call that failed transiently.
     retry_delays: tuple[float, ...] = (2, 5, 10, 20)
+
+    #: Seconds to wait before retrying an execution the gateway refused outright. Short, because
+    #: the refusal is usually a short saturation window on one connector.
+    execute_retry_delays: tuple[float, ...] = (2, 5, 10)
 
     def __init__(self, settings: Settings, *, session: ClientSession | None = None) -> None:
         self._settings = settings
@@ -222,20 +233,27 @@ class AixyTools:
         return ToolOutput.from_result(result)
 
     async def call_helper(self, name: str, arguments: dict[str, Any]) -> ToolOutput:
-        """Call an Aixy helper. Discovery calls are retried while Aixy reports a transient state."""
-        delays = self.retry_delays if name == SEARCH else ()
+        """Call an Aixy helper, retrying while Aixy reports a transient state.
+
+        Discovery and status helpers retry on any transient answer. Executions retry only on an
+        outright refusal ("processing capacity is unavailable"): anything else may have started
+        paid work, and a blind retry could pay twice.
+        """
+        delays = self.execute_retry_delays if name == EXECUTE else self.retry_delays
+        refusal_only = name == EXECUTE
         for delay in (*delays, None):
             try:
                 out = await self._call_once(name, arguments)
             except AixyToolError as exc:
-                if delay is None or not _is_transient(str(exc)):
+                if delay is None or not _is_transient(str(exc), execute=refusal_only):
                     raise
                 message = str(exc)
             else:
-                if delay is None or not (out.is_error and _is_transient(out.text)):
+                transient = out.is_error and _is_transient(out.text, execute=refusal_only)
+                if delay is None or not transient:
                     return out
                 message = out.text
-            log.info("Aixy discovery is not ready (%s); retrying in %ss", message, delay)
+            log.info("Aixy is not ready for %s (%s); retrying in %ss", name, message, delay)
             await asyncio.sleep(delay)
         raise AssertionError("unreachable")
 
