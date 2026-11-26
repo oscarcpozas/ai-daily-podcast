@@ -84,20 +84,6 @@ Speech is the one stage that spends credits, so it is handled conservatively:
 - If ElevenLabs reports a job as failed, it is dropped from `jobs.json` and the next run
   generates that chunk again.
 
-## Run it on Cloudflare
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/oscarcpozas/ai-daily-podcast)
-
-One click clones the repository into your account, provisions an R2 bucket, builds the container
-image and deploys a Worker whose Cron Trigger produces an episode every morning: the Workflow
-drives the pipeline stage by stage, each stage with its own retries, and the audio ends up in R2.
-
-The pipeline runs unmodified inside a Container, because ffmpeg and the Aixy SDKs need a real
-Python runtime (Python Workers run on Pyodide). Add the two Aixy secrets, edit `sources.toml`, and
-it is your own show about whatever you point it at.
-
-Pieces, costs and known limits: [`deploy/cloudflare/README.md`](deploy/cloudflare/README.md).
-
 ## Configuration
 
 - **`sources.toml`**: the trusted sources. Each entry has a `name`, a `url` and an optional
@@ -135,8 +121,6 @@ src/daily_podcast/
   cli.py       the `daily-podcast` command
 assets/        intro jingle
 docs/          architecture diagram of the first version
-deploy/cloudflare/   Worker, Workflow and container image for the Cloudflare deployment
-wrangler.jsonc       what the Deploy to Cloudflare button reads
 ```
 
 ## Development
@@ -146,7 +130,6 @@ uv run pytest        # unit tests: no network, no credentials needed
 uv run ruff check    # lint
 uv run ruff format   # format
 uv run pyright       # type check
-npm install && npm run typecheck   # the Cloudflare Worker in deploy/cloudflare
 ```
 
 ## License

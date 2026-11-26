@@ -140,8 +140,3 @@ out/
 # spike workspaces (generated checkpoints, reproducible with `python main.py runner|agent`)
 spikes/*/agent/
 spikes/*/runner/
-# Cloudflare deployment tooling
-node_modules/
-.wrangler/
-.dev.vars
-worker-configuration.d.ts

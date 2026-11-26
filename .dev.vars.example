@@ -1,3 +1,0 @@
-# For `npx wrangler dev` on your laptop. `wrangler deploy` uses Worker secrets instead.
-AIXY_API_KEY=
-AIXY_MCP_TOKEN=
