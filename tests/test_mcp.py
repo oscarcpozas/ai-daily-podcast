@@ -53,6 +53,29 @@ async def test_discovery_gives_up_after_the_last_delay():
     assert len(session.calls) == 4  # first attempt + 3 retries
 
 
+async def test_execution_is_retried_when_the_gateway_refused_to_process_it():
+    """ "Processing capacity is unavailable" means nothing ran; retrying cannot pay twice."""
+    session = ScriptedSession(
+        reply("MCP processing capacity is unavailable", error=True),
+        reply("ok"),
+    )
+    tools = tools_with(session)
+    tools.execute_retry_delays = (0, 0, 0)
+    out = await tools.call_helper(EXECUTE, {"name": "a.b", "arguments": {}})
+    assert not out.is_error
+    assert session.calls == [EXECUTE, EXECUTE]
+
+
+async def test_execution_gives_up_after_its_own_delay_ladder():
+    refusal = reply("MCP processing capacity is unavailable", error=True)
+    session = ScriptedSession(refusal, refusal, refusal, refusal)
+    tools = tools_with(session)
+    tools.execute_retry_delays = (0, 0, 0)
+    out = await tools.call_helper(EXECUTE, {"name": "a.b", "arguments": {}})
+    assert out.is_error
+    assert len(session.calls) == 4  # first attempt + 3 retries
+
+
 async def test_execution_is_never_retried_even_on_a_transient_looking_error():
     """EXECUTE can spend credits: a retry could pay twice."""
     session = ScriptedSession(reply("Discovery capacity is busy", error=True), reply("ok"))
