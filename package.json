@@ -1,0 +1,16 @@
+{
+  "name": "ai-daily-podcast-deploy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261123.1",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.168.0"
+  }
+}
